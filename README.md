@@ -668,6 +668,12 @@ the normal mode.
 It can greatly improve the startup speed, especially you open the terminal
 and just want to execute a simple command.
 
+Insert-Mode Keybindings
+--------
+
+This plugin will overwrite the viins key bindings.
+To disable it, you can set the option `ZVM_NO_INSERT_MODE_BINDINGS` to `true` before this plugin is loaded.
+
 ## 💎 Credits
 
 - [Zsh](https://www.zsh.org/) - A powerful shell that operates as both an interactive shell and as a scripting language interpreter.
