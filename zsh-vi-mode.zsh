@@ -160,7 +160,7 @@ command -v 'zvm_version' >/dev/null && return
 typeset -gr ZVM_NAME='zsh-vi-mode'
 typeset -gr ZVM_DESCRIPTION='💻 A better and friendly vi(vim) mode plugin for ZSH.'
 typeset -gr ZVM_REPOSITORY='https://github.com/jeffreytse/zsh-vi-mode'
-typeset -gr ZVM_VERSION='0.8.2'
+typeset -gr ZVM_VERSION='0.8.3'
 
 # Plugin initial status
 ZVM_INIT_DONE=false
@@ -196,8 +196,9 @@ ZVM_READKEY_ENGINE_NEX='nex'
 ZVM_READKEY_ENGINE_ZLE='zle'
 ZVM_READKEY_ENGINE_DEFAULT=$ZVM_READKEY_ENGINE_NEX
 
-# Default alternative character for escape space character
+# Default alternative character for escape characters
 ZVM_ESCAPE_SPACE='\s'
+ZVM_ESCAPE_NEWLINE='^J'
 
 # Default vi modes
 ZVM_MODE_LAST=''
@@ -345,7 +346,12 @@ function zvm_keys() {
       ;;
   esac
 
-  echo "${keys// /$ZVM_ESCAPE_SPACE}"
+  # Escape the newline and space characters, otherwise, we can't
+  # get the output from subshell correctly.
+  keys=${keys//$'\n'/$ZVM_ESCAPE_NEWLINE}
+  keys=${keys// /$ZVM_ESCAPE_SPACE}
+
+  echo $keys
 }
 
 # Find the widget on a specified bindkey
@@ -435,10 +441,6 @@ function zvm_readkeys() {
   local result=
   local pattern=
   local timeout=
-
-  # Escape the non-printed characters
-  pattern=$(zvm_escape_non_printed_characters "${keys}")
-  pattern=${pattern//$ZVM_ESCAPE_SPACE/ }
 
   while :; do
     # Keep reading key for escape character
@@ -589,7 +591,13 @@ function zvm_escape_non_printed_characters() {
       str="${str}${c}"
     fi
   done
-  echo ${str// /$ZVM_ESCAPE_SPACE}
+
+  # Escape the newline and space characters, otherwise, we can't
+  # get the output from subshell correctly.
+  str=${str// /$ZVM_ESCAPE_SPACE}
+  str=${str//$'\n'/$ZVM_ESCAPE_NEWLINE}
+
+  echo -n $str
 }
 
 # Backward remove characters of an emacs region in the line
@@ -720,7 +728,7 @@ function zvm_vi_replace() {
       # Escape key will break the replacing process, and enter key
       # will repace with a newline character.
       case $(zvm_escape_non_printed_characters $key) in
-        $ZVM_VI_OPPEND_ESCAPE_BINDKEY) break;;
+        '^['|$ZVM_VI_OPPEND_ESCAPE_BINDKEY) break;;
         '^M') key=$'\n';;
       esac
 
@@ -1181,7 +1189,7 @@ function zvm_default_handler() {
   local extra_keys=$1
 
   # Exit vi mode if keys is the escape keys
-  case "$(zvm_escape_non_printed_characters $keys)" in
+  case $(zvm_escape_non_printed_characters "$keys") in
     '^['|$ZVM_VI_INSERT_ESCAPE_BINDKEY)
       zvm_exit_insert_mode
       ZVM_KEYS=${extra_keys}
@@ -1200,6 +1208,7 @@ function zvm_default_handler() {
         [vV]c) zvm_vi_change;;
         [vV]d) zvm_vi_delete;;
         [vV]y) zvm_vi_yank;;
+        [vV]S) zvm_change_surround S;;
         [cdyvV]*) zvm_range_handler "${keys}${extra_keys}";;
         *)
           for ((i=0;i<$#keys;i++)) do
@@ -1267,8 +1276,9 @@ function zvm_readkeys_handler() {
     fi
   else
     zle $widget
-    ZVM_KEYS=
   fi
+
+  ZVM_KEYS=
 }
 
 # Find and move cursor to next character
@@ -1864,7 +1874,18 @@ function zvm_change_surround() {
       read -k 1 key
       zvm_exit_oppend_mode
       ;;
-    S|y|a) key=$surround; [[ -z $@ ]] && zle visual-mode;;
+    S|y|a)
+      if [[ -z $surround ]]; then
+        zvm_enter_oppend_mode
+        read -k 1 key
+        zvm_exit_oppend_mode
+      else
+        key=$surround
+      fi
+      if [[ $ZVM_MODE == $ZVM_MODE_VISUAL ]]; then
+        zle visual-mode
+      fi
+      ;;
   esac
 
   # Check if it is ESCAPE key (<ESC> or ZVM_VI_ESCAPE_BINDKEY)
@@ -2679,6 +2700,7 @@ function zvm_enter_visual_mode() {
   case "${1:-$(zvm_keys)}" in
     v) mode=$ZVM_MODE_VISUAL;;
     V) mode=$ZVM_MODE_VISUAL_LINE;;
+    *) mode=$last_mode;;
   esac
 
   # We should just exit the visual mdoe if current mode
@@ -2718,8 +2740,6 @@ function zvm_enter_insert_mode() {
     if ! zvm_is_empty_line; then
       CURSOR=$((CURSOR+1))
     fi
-  else
-    return
   fi
 
   zvm_reset_repeat_commands $ZVM_MODE_NORMAL $ZVM_INSERT_MODE
@@ -2764,8 +2784,15 @@ function zvm_append_eol() {
 # Self insert content to cursor position
 function zvm_self_insert() {
   local keys=${1:-$KEYS}
-  RBUFFER="${keys}${RBUFFER}"
-  CURSOR=$((CURSOR+1))
+
+  # Update the autosuggestion
+  if [[ ${POSTDISPLAY:0:$#keys} == $keys ]]; then
+    POSTDISPLAY=${POSTDISPLAY:$#keys}
+  else
+    POSTDISPLAY=
+  fi
+
+  LBUFFER+=${keys}
 }
 
 # Reset the repeat commands
